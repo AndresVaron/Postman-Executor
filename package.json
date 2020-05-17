@@ -1,0 +1,32 @@
+{
+  "name": "@andresvaron/postman-executor",
+  "version": "1.0.0",
+  "description": "Executes postman collections with custom mongo seeding and outputs jenkins test reports",
+  "main": "index.js",
+  "scripts": {
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AndresVaron/Postman-Executor.git"
+  },
+  "keywords": [
+    "postman",
+    "newman",
+    "mongodb",
+    "mongoimport",
+    "docker"
+  ],
+  "author": "Andres Varon",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/AndresVaron/Postman-Executor/issues"
+  },
+  "homepage": "https://github.com/AndresVaron/Postman-Executor#readme",
+  "dependencies": {
+    "commander": "^5.1.0",
+    "js-yaml": "^3.13.1",
+    "newman": "^5.0.0",
+    "request": "^2.88.2"
+  }
+}
