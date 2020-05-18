@@ -8,6 +8,7 @@ var path = require("path");
 var util = require("util");
 const exec = util.promisify(require("child_process").exec);
 const request = util.promisify(require("request"));
+const sleep = require("util").promisify(setTimeout);
 
 async function execute() {
   program
@@ -16,6 +17,7 @@ async function execute() {
     .option("-f, --file <file>", "Configuration file")
     .option("-s, --serverurl <serverurl>", "Server URL")
     .option("-i, --ip <ip>", "Postman IP Keyword")
+    .option("-j, --jenkins", "Triggered by jenkins")
     .option("-p, --port <port>", "Postman Port keyword");
 
   program.parse(process.argv);
@@ -226,11 +228,28 @@ async function execute() {
   }
   serverIP = str2[0];
   serverPort = str2[1];
-  try {
-    await request(serverUrl);
-    console.info("Server at " + serverUrl + " found");
-  } catch (error) {
-    console.error("Error: " + "The server at " + serverUrl + " was not found");
+  let found = false;
+  var conter = new Array(10);
+  //If it was configured from jenkins it will try 10 times every 10 secs
+  for (var i of conter) {
+    try {
+      await request(serverUrl);
+      console.info("Server at " + serverUrl + " found");
+      found = true;
+      break;
+    } catch (error) {
+      if (!program.jenkins) {
+        console.error(
+          "Error: " + "The server at " + serverUrl + " was not found"
+        );
+        return;
+      } else {
+        await sleep(4000);
+      }
+    }
+  }
+  if (!found) {
+    console.error("Error: " + "The server at " + serverUrl + " was not found!");
     return;
   }
   console.info("Found " + tests.length + " Tests.");
@@ -283,8 +302,8 @@ async function execute() {
       reporter: {
         junit: {
           export: path.join(
-            process.cwd(),
-            "/postman-executor/" + test.name + "Results.xml"
+            path.format({ dir: confDir }),
+            "/postman-executor-results/" + test.name + "Results.xml"
           ),
         },
       },
@@ -395,7 +414,7 @@ function checkdata(data, globalDatabase, confDir) {
     );
     return new Error();
   }
-
+  obj.file = filePath;
   obj.name = keys[0];
   return obj;
 }

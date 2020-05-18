@@ -1,6 +1,6 @@
 {
   "name": "@andresvaron/postman-executor",
-  "version": "1.1.3",
+  "version": "1.1.6",
   "description": "Executes postman collections with custom mongo seeding and outputs jenkins test reports",
   "main": "index.js",
   "scripts": {
