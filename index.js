@@ -1,4 +1,4 @@
-"use strict";
+#!/usr/bin/env node
 
 const { program } = require("commander");
 const newman = require("newman");
@@ -14,7 +14,9 @@ async function execute() {
     .option("-d, --docker", "Mongo in docker container")
     .option("-m, --mongo <mongo>", "Mongo location")
     .option("-f, --file <file>", "Configuration file")
-    .option("-s, --serverurl <serverurl>", "Server URL");
+    .option("-s, --serverurl <serverurl>", "Server URL")
+    .option("-i, --ip <ip>", "Postman IP Keyword")
+    .option("-p, --port <port>", "Postman Port keyword");
 
   program.parse(process.argv);
   console.info(program.opts());
@@ -24,6 +26,15 @@ async function execute() {
     confFile = program.file;
   } else {
     confFile = "postman-executor.yaml";
+  }
+
+  let ipKeyword = "ip";
+  if (program.ip) {
+    ipKeyword = program.ip;
+  }
+  let portKeyword = "puerto";
+  if (program.port) {
+    portKeyword = program.port;
   }
 
   //Check if the file exists.
@@ -49,15 +60,16 @@ async function execute() {
   var databases = [];
   var tests = [];
 
-  //Se verifican los datos del archivo.
-  //Si el archivo tiene confs globales
+  //Check global seed files
+  //If it has global confs.
   if (confData.global !== undefined) {
-    //Si tiene base de datos global
+    //If it has a global database
     if (confData.global.database !== undefined) {
       globalDatabase = confData.global.database;
       databases.push(globalDatabase);
     }
-    //Si tiene data y es un arreglo
+
+    //If it has a data array
     if (
       confData.global.data !== undefined &&
       Array.isArray(confData.global.data)
@@ -137,7 +149,7 @@ async function execute() {
       return;
     }
 
-    test.postmancollection = obj.postmancollection;
+    test.postmancollection = filePath;
     if (
       obj.data !== undefined &&
       Array.isArray(obj.data) &&
@@ -152,13 +164,13 @@ async function execute() {
         datas.push(val);
       }
     }
+    test.name = keys[0];
     test.data = datas;
     tests.push(test);
   }
 
   //Check the mongo Conf
-  let mongoIP = "localhost",
-    mongoPort = "27017";
+  let mongoIP = "localhost";
   if (program.mongo) {
     let str = program.mongo.split(":");
     if (str.length !== 2) {
@@ -166,7 +178,6 @@ async function execute() {
       return;
     }
     mongoIP = str[0];
-    mongoPort = str[1];
   }
   if (program.docker) {
     try {
@@ -222,11 +233,99 @@ async function execute() {
     console.error("Error: " + "The server at " + serverUrl + " was not found");
     return;
   }
-  console.log(databases);
-  console.log(tests);
+  console.info("Found " + tests.length + " Tests.");
+
+  console.info("Starting initial global seeding:");
+  //Seed the Start global documents
+  for (data of globalData) {
+    console.info(data.name);
+    if (data.strategy === "Start") {
+      await seed(program.docker, data, mongoIP);
+    }
+  }
+
+  console.info("Starting integration-tests");
+  //For each postman test.
+  for (test of tests) {
+    console.info(test.name + ":");
+    //Seed the global data.
+    for (data of globalData) {
+      if (data.strategy === "Always") {
+        await seed(program.docker, data, mongoIP);
+      }
+    }
+    //Seed the specific data
+    for (data of test.data) {
+      await seed(program.docker, data, mongoIP);
+    }
+    console.info("Done Seeding");
+    //Run newman tests.
+    let options = {
+      collection: require(test.postmancollection),
+      reporters: ["cli", "junit"],
+      environment: {
+        name: "Postman-Executor-Env",
+        values: [
+          {
+            key: ipKeyword,
+            value: serverIP,
+            type: "text",
+            enabled: true,
+          },
+          {
+            key: portKeyword,
+            value: serverPort,
+            type: "text",
+            enabled: true,
+          },
+        ],
+      },
+      reporter: {
+        junit: {
+          export: path.join(
+            process.cwd(),
+            "/postman-executor/" + test.name + "Results.xml"
+          ),
+        },
+      },
+    };
+    console.info("Starting newman.....");
+    newman.run(options, function (err) {
+      if (err) {
+        throw err;
+      }
+      console.log("collection run complete!");
+    });
+  }
+
+  //END
 }
 
 execute();
+
+async function seed(docker, data, mongoIP) {
+  if (docker) {
+    await exec("docker cp " + data.file + " " + mongoIP + ":seed.json");
+    await exec(
+      "docker exec " +
+        mongoIP +
+        " mongoimport --db=" +
+        data.database +
+        " --collection=" +
+        data.collection +
+        " --file=seed.json"
+    );
+  } else {
+    await exec(
+      "mongoimport --db=" +
+        data.database +
+        " --collection=" +
+        data.collection +
+        " --file=" +
+        data.file
+    );
+  }
+}
 
 //Verifies that the dataobject is valid.
 function checkdata(data, globalDatabase, confDir) {
@@ -274,40 +373,29 @@ function checkdata(data, globalDatabase, confDir) {
     );
     return new Error();
   }
-  if (obj.file.toString() !== "[object Object]") {
-    let filePath, contents;
-    try {
-      filePath = path.join(path.format({ dir: confDir }), obj.file.toString());
-    } catch (error) {
-      console.error(
-        "The data object " +
-          keys[0] +
-          ".file " +
-          obj.file +
-          " is invalid. Specify a valid path or an empty object {}"
-      );
-      return new Error();
-    }
-    try {
-      contents = fs.readFileSync(filePath, "utf8");
-    } catch (error) {
-      console.error(
-        "The data object " + keys[0] + ".file " + filePath + " was not found."
-      );
-      return new Error();
-    }
-  } else {
-    if (Object.keys(obj.file).length > 0) {
-      console.error(
-        "The data object " +
-          keys[0] +
-          ".file " +
-          obj.file +
-          " is invalid. Specify a valid path or an empty object {}"
-      );
 
-      return new Error();
-    }
+  let filePath, contents;
+  try {
+    filePath = path.join(path.format({ dir: confDir }), obj.file.toString());
+  } catch (error) {
+    console.error(
+      "The data object " +
+        keys[0] +
+        ".file " +
+        obj.file +
+        " is invalid. Specify a valid path"
+    );
+    return new Error();
   }
+  try {
+    contents = fs.readFileSync(filePath, "utf8");
+  } catch (error) {
+    console.error(
+      "The data object " + keys[0] + ".file " + filePath + " was not found."
+    );
+    return new Error();
+  }
+
+  obj.name = keys[0];
   return obj;
 }
