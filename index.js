@@ -254,19 +254,28 @@ async function execute() {
   }
   console.info("Found " + tests.length + " Tests.");
 
-  console.info("Starting initial global seeding:");
-  //Seed the Start global documents
-  for (data of globalData) {
-    console.info(data.name);
-    if (data.strategy === "Start") {
-      await seed(program.docker, data, mongoIP);
-    }
-  }
-
   console.info("Starting integration-tests");
   //For each postman test.
   for (test of tests) {
     console.info(test.name + ":");
+
+    //Delete all collections.
+    if (program.docker) {
+      await exec(
+        "docker exec " +
+          mongoIP +
+          " mongo " +
+          data.database +
+          ' --eval "db.getCollectionNames().forEach(function(n){db[n].remove({})});"'
+      );
+    } else {
+      await exec(
+        "mongo " +
+          data.database +
+          ' --eval "db.getCollectionNames().forEach(function(n){db[n].remove({})});"'
+      );
+    }
+
     //Seed the global data.
     for (data of globalData) {
       if (data.strategy === "Always") {
@@ -341,7 +350,8 @@ async function seed(docker, data, mongoIP) {
         " --collection=" +
         data.collection +
         " --file=" +
-        data.file + " --jsonArray"
+        data.file +
+        " --jsonArray"
     );
   }
 }
