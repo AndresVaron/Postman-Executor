@@ -332,7 +332,7 @@ async function seed(docker, data, mongoIP) {
         data.database +
         " --collection=" +
         data.collection +
-        " --file=seed.json"
+        " --file=seed.json --jsonArray"
     );
   } else {
     await exec(
@@ -341,7 +341,7 @@ async function seed(docker, data, mongoIP) {
         " --collection=" +
         data.collection +
         " --file=" +
-        data.file
+        data.file + " --jsonArray"
     );
   }
 }
