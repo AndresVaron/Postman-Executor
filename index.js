@@ -6,9 +6,19 @@ const yaml = require("js-yaml");
 var fs = require("fs");
 var path = require("path");
 var util = require("util");
-const exec = util.promisify(require("child_process").exec);
+const execScript = util.promisify(require("child_process").exec);
 const request = util.promisify(require("request"));
 const sleep = require("util").promisify(setTimeout);
+
+async function exec(script, print) {
+  let resp = await execScript(script);
+  console.log(script);
+  console.log();
+  if (print !== false) {
+    console.log(resp.stdout);
+    console.log();
+  }
+}
 
 async function execute() {
   program
@@ -186,7 +196,8 @@ async function execute() {
       await exec(
         "docker exec " +
           mongoIP +
-          ' mongo --eval "printjson(db.serverStatus())"'
+          ' mongo --eval "printjson(db.serverStatus())"',
+        false
       );
       console.info(
         "MongoDB docker container " +
@@ -196,7 +207,7 @@ async function execute() {
     } catch (err) {}
   } else {
     try {
-      await exec('mongo --eval "printjson(db.serverStatus())"');
+      await exec('mongo --eval "printjson(db.serverStatus())"', false);
       console.info("Mongo local was found and is working correctly!");
     } catch (err) {
       if (toString(err).includes("'mongo' is not recognized")) {
@@ -260,27 +271,27 @@ async function execute() {
     console.info(test.name + ":");
 
     //Delete all collections.
-    if (program.docker) {
-      await exec(
-        "docker exec " +
-          mongoIP +
-          " mongo " +
-          data.database +
-          ' --eval "db.getCollectionNames().forEach(function(n){db[n].remove({})});"'
-      );
-    } else {
-      await exec(
-        "mongo " +
-          data.database +
-          ' --eval "db.getCollectionNames().forEach(function(n){db[n].remove({})});"'
-      );
+    for (db of databases) {
+      if (program.docker) {
+        await exec(
+          "docker exec " +
+            mongoIP +
+            " mongo " +
+            db +
+            ' --eval "db.getCollectionNames().forEach(function(n){db[n].remove({})});"'
+        );
+      } else {
+        await exec(
+          "mongo " +
+            db +
+            ' --eval "db.getCollectionNames().forEach(function(n){db[n].remove({})});"'
+        );
+      }
     }
 
     //Seed the global data.
     for (data of globalData) {
-      if (data.strategy === "Always") {
-        await seed(program.docker, data, mongoIP);
-      }
+      await seed(program.docker, data, mongoIP);
     }
     //Seed the specific data
     for (data of test.data) {
@@ -318,12 +329,19 @@ async function execute() {
       },
     };
     console.info("Starting newman.....");
-    newman.run(options, function (err) {
-      if (err) {
-        throw err;
+
+    let run = util.promisify((options, cb) =>
+      newman.run(options, (error) => cb(error, true))
+    );
+
+    try {
+      let respuesta = await run(options);
+      if (respuesta) {
+        console.log("collection run complete!");
       }
-      console.log("collection run complete!");
-    });
+    } catch (error) {
+      throw error;
+    }
   }
 
   //END
